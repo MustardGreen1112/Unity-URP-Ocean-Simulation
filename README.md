@@ -14,3 +14,9 @@ In short, I implemented IFFT in Unity's compute shader and used it to calculate 
 ![Screenshot from the demo scene](Demo/demo1.jpg)
 ![Screenshot from the demo scene](Demo/demo2.jpg)
 ![Screenshot from the demo scene](Demo/demo3.jpg)
+# What to do next
+* Try other spectrum models.
+* Add choppy waves computed from the transformation Jacobian.
+* The ocean's material now is not very satisfying to me. Lacking sense of transparency and refraction.
+* Offshore shallow water guadual change and underwater caustics
+* Physical interactions
