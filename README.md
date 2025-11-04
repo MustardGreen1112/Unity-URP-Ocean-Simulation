@@ -9,6 +9,8 @@ There's a demo scene in Scenes/IFFTOcean_Sample which you can refer to. To integ
 * Bake the scene's light so the ocean can sample from the environmental map. 
 * Adjust the oceam material in Materials/ to get a satisfied color. 
 # Implementation detail
-In short, I implemented IFFT in Unity's compute shader and used it to calculate the vertex displacement from the dispersion relation and statistical spectrum models from real ocean (Phillips spectrum). Please refer to [this link](https://mustard-cg.com/projects/oceansimulation) for more details. 
+In short, I implemented IFFT in Unity's compute shader and used it to calculate the vertex displacement from the dispersion relation and statistical spectrum models from real ocean (Phillips spectrum). Please refer to [my blog](https://mustard-cg.com/projects/oceansimulation) for more details. 
 # How it looks like 
-![](Demo/demovideo.mp4.mov)
+![Screenshot from the demo scene](Demo/demo1.jpg)
+![Screenshot from the demo scene](Demo/demo2.jpg)
+![Screenshot from the demo scene](Demo/demo3.jpg)
