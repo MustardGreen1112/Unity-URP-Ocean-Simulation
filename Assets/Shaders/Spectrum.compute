@@ -1,0 +1,31 @@
+#pragma kernel ComputeAmplitudesAtT
+
+RWTexture2D<float2> Amplitudes_h;
+RWTexture2D<float2> Amplitudes_Dx;
+RWTexture2D<float2> Amplitudes_Dz; 
+RWTexture2D<float4> InitialSpectrum;
+RWTexture2D<float4> WaveData; // (x,z) - (kx, kz); y - 1/||k||; w - frequency: w(||k||). 
+
+float Time;
+
+float2 C_Mult(float2 a, float2 b)
+{
+    return float2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+[numthreads(8,8,1)]
+void ComputeAmplitudesAtT(uint3 id : SV_DispatchThreadID)
+{
+    float omega = WaveData[id.xy].w; // Frequency at this wave vector.
+    float2 k = WaveData[id.xy].xz;
+    float k_ = 1.0 / WaveData[id.xy].y;
+    float2 h0 = InitialSpectrum[id.xy].xy;
+    float2 h0Minusk = InitialSpectrum[id.xy].zw;
+    float2 exp1 = float2(cos(omega * Time), sin(omega * Time));
+    float2 exp2 = float2(cos(omega * Time), -sin(omega * Time));
+    float2 ht = C_Mult(h0, exp1) + C_Mult(h0Minusk, exp2);
+    Amplitudes_h[id.xy] = ht;
+    float2 iht = float2(-ht.y, ht.x);
+    Amplitudes_Dx[id.xy] = iht * k.x;
+    Amplitudes_Dz[id.xy] = iht * k.y;
+}

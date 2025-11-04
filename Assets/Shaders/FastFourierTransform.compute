@@ -1,0 +1,131 @@
+#pragma kernel GenFFTParameters
+#pragma kernel X_FFT
+#pragma kernel Y_FFT
+#pragma kernel X_IFFT
+#pragma kernel Y_IFFT
+#pragma kernel Permute
+#pragma kernel Scale
+
+uint Size;
+uint Step;
+bool PingPong;
+static const float PI = 3.1415926;
+RWTexture2D<float4> FFTParameterBuffer; // The buffer when initializing the FFT and return to the CPU.
+Texture2D<float4> FFTParameterData; // The buffer during the FFT calculation when the game running for each frame. It also point to the Texture above, as a read-only texture.
+RWTexture2D<float2> Buffer0; // Input buffer, contains the spatial/frequency data. 
+RWTexture2D<float2> Buffer1; // Empty buffer. 
+/// (a + bi) * (c + di) = (ac - bd)
+float2 C_Mul(float2 a, float2 b)
+{
+    return float2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+/// e^(a + bi) = e^a * (cos(b) + i*sin(b)). 
+float2 C_Exp(float2 a)
+{
+    return float2(cos(a.y), sin(a.y)) * exp(a.x);
+}
+
+/// A sheet storing the idx and the complex exponential for stockham FFT. 
+/// The sheet's shape is log(N) * N. 
+/// rg - twiddle factor. ba - indices of the two numbers to be combined.
+[numthreads(1, 8, 1)]
+void GenFFTParameters(uint3 id : SV_DispatchThreadID)
+{
+    uint stage = id.x; // id.x is the current step(stage) of the FFT. 
+    uint distance = Size >> (stage + 1); // It is calculating the distance between two numbers in the FFT. 
+    uint i = (2 * distance * (id.y / distance) + id.y % distance) % Size;
+    float w = 2.0 * PI / (float) Size;
+    float kn = (id.y / distance) * distance;
+    float2 twiddle = C_Exp(float2(0, -w * kn));
+    FFTParameterBuffer[id.xy] = float4(twiddle.x, twiddle.y, i, i + distance);
+    FFTParameterBuffer[uint2(id.x, id.y + Size / 2)] = float4(-twiddle.x, -twiddle.y, i, i + distance);
+}
+
+[numthreads(8, 8, 1)]
+void X_FFT(uint3 id : SV_DispatchThreadID)
+{
+    uint y = id.y;
+    float4 fftparam = FFTParameterData[uint2(Step, id.x)];
+    float2 indices_pair = fftparam.ba;
+    float2 twiddle = fftparam.rg;
+    if (PingPong) // Should read from buffer0 and write to buffer1. 
+    {
+        Buffer1[id.xy] = Buffer0[uint2(indices_pair.x, y)] +
+        C_Mul(Buffer0[uint2(indices_pair.y, y)], twiddle);
+    }
+    else
+    {
+        Buffer0[id.xy] = Buffer1[uint2(indices_pair.x, y)] +
+        C_Mul(Buffer1[uint2(indices_pair.y, y)], twiddle);
+    }
+}
+
+[numthreads(8, 8, 1)]
+void Y_FFT(uint3 id : SV_DispatchThreadID)
+{
+    uint x = id.x;
+    float4 fftparam = FFTParameterData[uint2(Step, id.y)];
+    float2 indices_pair = fftparam.ba;
+    float2 twiddle = fftparam.rg;
+    if (PingPong) // Should read from buffer0 and write to buffer1. 
+    {
+        Buffer1[id.xy] = Buffer0[uint2(x, indices_pair.x)] +
+        C_Mul(Buffer0[uint2(x, indices_pair.y)], twiddle);
+    }
+    else
+    {
+        Buffer0[id.xy] = Buffer1[uint2(x, indices_pair.x)] +
+        C_Mul(Buffer1[uint2(x, indices_pair.y)], twiddle);
+    }
+}
+
+[numthreads(8, 8, 1)]
+void X_IFFT(uint3 id : SV_DispatchThreadID)
+{
+    uint y = id.y;
+    float4 fftparam = FFTParameterData[uint2(Step, id.x)];
+    float2 indices_pair = fftparam.ba;
+    float2 twiddle = fftparam.rg;
+    if (PingPong) // Should read from buffer0 and write to buffer1. 
+    {
+        Buffer1[id.xy] = Buffer0[uint2(indices_pair.x, y)] +
+        C_Mul(Buffer0[uint2(indices_pair.y, y)], float2(twiddle.x, -twiddle.y));
+    }
+    else
+    {
+        Buffer0[id.xy] = Buffer1[uint2(indices_pair.x, y)] +
+        C_Mul(Buffer1[uint2(indices_pair.y, y)], float2(twiddle.x, -twiddle.y));
+    }
+}
+
+[numthreads(8,8,1)]
+void Y_IFFT (uint3 id : SV_DispatchThreadID)
+{
+    uint x = id.x;
+    float4 fftparam = FFTParameterData[uint2(Step, id.y)];
+    float2 indices_pair = fftparam.ba;
+    float2 twiddle = fftparam.rg;
+    if (PingPong) // Should read from buffer0 and write to buffer1. 
+    {
+        Buffer1[id.xy] = Buffer0[uint2(x, indices_pair.x)] +
+        C_Mul(Buffer0[uint2(x, indices_pair.y)], float2(twiddle.x, -twiddle.y));
+    }
+    else
+    {
+        Buffer0[id.xy] = Buffer1[uint2(x, indices_pair.x)] +
+        C_Mul(Buffer1[uint2(x, indices_pair.y)], float2(twiddle.x, -twiddle.y));
+    }
+}
+
+[numthreads(8, 8, 1)]
+void Scale(uint3 id : SV_DispatchThreadID)
+{
+    Buffer0[id.xy] = Buffer0[id.xy] / Size / Size;
+}
+
+[numthreads(8, 8, 1)]
+void Permute(uint3 id : SV_DispatchThreadID)
+{
+    Buffer0[id.xy] = Buffer0[id.xy] * (1.0 - 2.0 * ((id.x + id.y) % 2));
+}

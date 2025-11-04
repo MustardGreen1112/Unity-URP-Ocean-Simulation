@@ -1,0 +1,108 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel ComputeInitialSpectrum
+#pragma kernel ComputeConjugate
+static const float PI = 3.1415926;
+static const float epsilon = 1e-5;
+
+Texture2D<float4> GaussianRV;
+SamplerState GaussianRV_sampler;
+RWTexture2D<float4> InitialSpectrum; // H~(k, 0). 
+RWTexture2D<float2> H0k; // Intermediate storage for H~0(k) for computing H*~(0). 
+RWTexture2D<float4> WaveData; // (x,z) - (kx, kz); y - 1/||k||; w - frequency： w(||k||). 
+struct SpectrumParameters
+{
+    float minWavelength;
+    float scalingFactor;
+    float windSpeed;
+    float windDirection;
+};
+StructuredBuffer<SpectrumParameters> Spectrums; // List of SpectrumParameters structs. 
+uint Size;
+float G;
+float Depth;
+float LengthScale;
+
+
+//float2 sampleGaussian(float2 rv)
+//{
+//    float angle = 2.0 * PI * rv.x;
+//  // Return the two independent Gaussian samples
+//    return sqrt(-2.0 * log(1.0 - rv.y)) * float2(cos(angle), sin(angle));
+//}
+
+//float Random01(uint2 id)
+//{
+//    const uint PRIME32_2 = 2246822519U, PRIME32_3 = 3266489917U;
+//    const uint PRIME32_4 = 668265263U, PRIME32_5 = 374761393U;
+//    uint h32 = id.y + PRIME32_5 + id.x * PRIME32_3;
+//    h32 = PRIME32_4 * ((h32 << 17) | (h32 >> (32 - 17)));
+//    h32 = PRIME32_2 * (h32 ^ (h32 >> 15));
+//    h32 = PRIME32_3 * (h32 ^ (h32 >> 13));
+//    h32 = h32 ^ (h32 >> 16);
+//    return float(h32) / float(0xFFFFFFFFu); // Normalize to range [0, 1]
+//}
+//uint2 HashID(uint2 v)
+//{
+//    // Mix the components with arbitrary primes and bit shifts
+//    v = v * uint2(0x9E3779B1, 0x85EBCA77); // Large constants (golden ratio based)
+//    v += uint2(v.y, v.x) * 0xC2B2AE3D;
+//    v ^= (v >> 16);
+//    v += (v.yx ^ (v << 3));
+//    return v;
+//}
+// k : unit length wave vector, k_ : length of wave vector, 
+// l: modification term, should be as small as 1e-4 or so. V : wind speed, 
+// g : gravity, A : numeric constant, w : wind direction. 
+float Phillips(float2 k, float k_, float l, float V, float g, float A, float w)
+{
+    k = normalize(k);
+    float2 w_ = float2(cos(2.0 * PI * w), sin(2.0 * PI * w)); // Wind direction as a unit vector.
+    float D = dot(k, w_);
+    D = D * D;
+    float exponential = -g * g / (pow(V, 4.0f) * k_ * k_);
+    return exp(exponential) / pow(k_, 4.0f) * D * A * exp(-k_ * k_ * l * l);
+}
+
+float Frequency(float k, float g, float depth)
+{
+    return sqrt(g * k * tanh(min(k * depth, 20)));
+}
+
+[numthreads(8, 8, 1)]
+void ComputeInitialSpectrum(uint3 id : SV_DispatchThreadID)
+{
+    float deltaK = 2 * PI / LengthScale;
+    int nx = id.x - Size / 2;
+    int nz = id.y - Size / 2;
+    float2 k = float2(nx, nz) * deltaK;
+    float kLength = length(k);
+
+    if (kLength >= 0.0001)
+    {
+        float kAngle = atan2(k.y, k.x);
+        float omega = Frequency(kLength, G, Depth);
+        WaveData[id.xy] = float4(k.x, 1 / kLength, k.y, omega);
+        float2 windDir = normalize(float2(cos(Spectrums[0].windDirection), sin(Spectrums[0].windDirection)));     
+        float p = Phillips(k, kLength, Spectrums[0].minWavelength,
+        Spectrums[0].windSpeed, G, Spectrums[0].scalingFactor, Spectrums[0].windDirection);
+        //uint2 id_hashed = HashID(id.xy);
+        //float2 rv = float2(Random01(id_hashed.x), Random01(id_hashed.y));
+        //float2 gv = sampleGaussian(rv);
+        float2 gv = GaussianRV[id.xy].xy;
+        H0k[id.xy] = gv * sqrt(0.5f * p) ;
+    }
+    else
+    {
+        H0k[id.xy] = 0;
+        WaveData[id.xy] = float4(k.x, 1, k.y, 0);
+    }
+}
+
+[numthreads(8, 8, 1)]
+void ComputeConjugate(uint3 id : SV_DispatchThreadID)
+{
+    float2 h0K = H0k[id.xy];
+    float2 h0MinusK = H0k[uint2((Size - id.x) % Size, (Size - id.y) % Size)];
+    InitialSpectrum[id.xy] = float4(h0K.x, h0K.y, h0MinusK.x, -h0MinusK.y);
+}
+
